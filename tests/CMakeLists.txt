@@ -42,3 +42,22 @@ target_include_directories(signal_analyzer_tests PRIVATE
 target_link_libraries(signal_analyzer_tests m)
 
 add_test(NAME signal_analyzer_tests COMMAND signal_analyzer_tests)
+
+# Add real-time scheduler tests
+add_executable(rt_scheduler_tests
+    unit/rt_scheduler_tests.c
+    ../src/runtime/scheduler/rt_scheduler.c
+    ../src/runtime/memory/rt_memory.c
+    ../src/runtime/watchdog/watchdog.c
+)
+
+target_include_directories(rt_scheduler_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(rt_scheduler_tests
+    pthread
+    rt
+)
+
+add_test(NAME rt_scheduler_tests COMMAND rt_scheduler_tests)
