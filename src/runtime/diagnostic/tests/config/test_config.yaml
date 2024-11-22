@@ -1,0 +1,47 @@
+diagnostic_system:
+  transport:
+    protocol: UDS
+    max_message_length: 4096
+    p2_timeout_ms: 50
+    p2_star_timeout_ms: 5000
+
+  session:
+    default_p2_timeout_ms: 50
+    extended_p2_timeout_ms: 5000
+    s3_timeout_ms: 5000
+    enable_session_lock: true
+
+  security:
+    default_delay_time_ms: 10000
+    default_max_attempts: 3
+
+  routines:
+    battery_test:
+      timeout_ms: 30000
+      max_voltage: 16.0
+      min_voltage: 8.0
+    
+    sensor_calibration:
+      timeout_ms: 10000
+      max_attempts: 3
+    
+    memory_check:
+      timeout_ms: 60000
+      block_size: 4096
+
+  data_identifiers:
+    vehicle_info:
+      - did: 0xF190
+        length: 17
+        access: READ_WRITE
+      - did: 0xF191
+        length: 32
+        access: READ_WRITE
+
+    system_status:
+      - did: 0xF300
+        length: 4
+        access: READ_ONLY
+      - did: 0xF301
+        length: 4
+        access: READ_ONLY 
