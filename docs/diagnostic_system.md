@@ -1,185 +1,220 @@
-# Diagnostic System Implementation
+# Diagnostic System Documentation
 
 ## Overview
-The diagnostic system implements the UDS (Unified Diagnostic Services) protocol according to ISO 14229-1. It provides a modular and configurable framework for handling diagnostic services in automotive ECUs.
+The diagnostic system provides comprehensive monitoring, logging, and error handling capabilities for the CAN Therapeutic system. It includes session management, security features, resource monitoring, and performance tracking.
 
 ## Components
 
-### 1. Diagnostic System Manager (diag_system)
-- Central coordinator for all diagnostic components
-- Handles initialization and message routing
-- Manages system state and error handling
+### 1. Logger System
+- Configurable logging levels
+- Console and file output support
+- Rotation and cleanup features
 
-### 2. Transport Layer (diag_transport)
-- Implements ISO-TP (ISO 15765-2) protocol
-- Handles message segmentation and reassembly
-- Supports multiple transport protocols
+### 2. Session Management
+- State machine based session handling
+- Timeout management
+- Multi-session support
 
-### 3. Memory Manager (memory_manager)
-- Manages memory operations for download/upload
-- Handles memory range validation
-- Supports different memory types (RAM, FLASH, EEPROM)
+### 3. Security Features
+- Access level control
+- Security seed/key implementation
+- Violation monitoring
 
-### 4. Session Manager (session_manager)
-- Controls diagnostic sessions
-- Manages session timeouts (P2, P2*, S3)
-- Handles session security levels
+### 4. Resource Management
+- CPU usage monitoring
+- Memory tracking
+- I/O operation monitoring
 
-### 5. Service Router (service_router)
-- Routes diagnostic requests to appropriate handlers
-- Manages service access rights
-- Handles service dependencies
+### 5. Performance Monitoring
+- Timing measurements
+- Performance metrics collection
+- Threshold monitoring
 
-### 6. Data Manager (data_manager)
-- Manages diagnostic data identifiers (DIDs)
-- Handles data scaling and conversion
-- Controls data access rights
-
-### 7. Security Manager (security_manager)
-- Implements security access mechanism
-- Manages security levels and access rights
-- Handles seed/key calculations
-
-### 8. Routine Manager (routine_manager)
-- Controls diagnostic routines
-- Manages routine states and results
-- Handles routine timeouts
-
-### 9. Communication Manager (comm_manager)
-- Manages communication channels
-- Controls network management
-- Handles communication control
-
-## Configuration Example
-
-DiagSystemConfig config = {
-    .transport_config = {
-        .protocol = DIAG_PROTOCOL_UDS,
-        .max_message_length = 4096,
-        .p2_timeout_ms = 50,
-        .p2_star_timeout_ms = 5000
-    },
-    .session_config = {
-        .default_p2_timeout_ms = 50,
-        .extended_p2_timeout_ms = 5000,
-        .s3_timeout_ms = 5000,
-        .enable_session_lock = true
-    },
-    .security_config = {
-        .default_delay_time_ms = 10000,
-        .default_max_attempts = 3
-    }
-};
+### 6. Error Handling
+- Severity-based error management
+- Error history
+- Callback support
 
 ## Integration Guide
 
 ### 1. Initialization
-// Initialize diagnostic system
-if (!Diag_System_Init(&config)) {
-    // Handle initialization error
+```c
+DiagSystemConfig config = {
+    .logger = {
+        .enable_console = true,
+        .enable_file = true,
+        .min_level = LOG_LEVEL_INFO
+    },
+    .session = {
+        .max_sessions = 10,
+        .session_timeout_ms = 5000
+    }
+    // ... configure other components
+};
+if (!DiagSystem_Init(&config)) {
+    // Handle initialization failure
 }
+```
 
-### 2. Message Processing
-// Process diagnostic messages
-void process_can_message(const uint8_t* data, uint16_t length) {
-    Diag_System_HandleRequest(data, length);
-}
-
-### 3. Periodic Processing
-// Call in main loop
+### 2. Regular Processing
+```c
 void main_loop(void) {
-    Diag_System_Process();
+    while (1) {
+        DiagSystem_Process();
+        // ... other system processing
+    }
 }
+```
 
-## Supported Services
-1. Diagnostic Session Control (0x10)
-2. ECU Reset (0x11)
-3. Security Access (0x27)
-4. Communication Control (0x28)
-5. Tester Present (0x3E)
-6. Read Data By Identifier (0x22)
-7. Write Data By Identifier (0x2E)
-8. Routine Control (0x31)
-9. Request Download (0x34)
-10. Transfer Data (0x36)
-11. Request Transfer Exit (0x37)
+### 3. Error Handling
+```c
+// Report an error
+Error_Report(0x1234, ERROR_SEVERITY_WARNING, "MODULE", "Description");
 
-## Security Considerations
+// Check system health
+if (!DiagSystem_IsHealthy()) {
+    // Take corrective action
+}
+```
+
+## Configuration Guidelines
+
+### Logger Configuration
+- Set appropriate log levels based on deployment environment:
+  - Development: LOG_LEVEL_DEBUG
+  - Testing: LOG_LEVEL_INFO
+  - Production: LOG_LEVEL_WARNING
+- Enable file logging in production environments
+- Configure appropriate log rotation settings
 
 ### Session Management
-- Proper session timeout handling
-- Session level access control
-- Session state validation
+- Set session timeouts based on use case requirements
+- Configure maximum sessions based on system resources
+- Implement proper session cleanup mechanisms
 
-### Security Access
-- Secure seed/key algorithm
-- Attempt counting
-- Delay timer implementation
+### Security Settings
+- Configure appropriate security levels
+- Set reasonable attempt limits and lockout periods
+- Implement secure key validation mechanisms
 
-### Memory Protection
-- Memory range validation
-- Write protection checks
-- Checksum verification
+### Resource Management
+- Set CPU usage thresholds appropriate for the platform
+- Configure memory limits based on available resources
+- Set I/O operation thresholds based on system capabilities
 
-## Error Handling
+### Performance Monitoring
+- Configure timing thresholds based on real-time requirements
+- Set appropriate sampling intervals
+- Configure performance metric storage capacity
 
-### Response Codes
-- General reject (0x10)
-- Service not supported (0x11)
-- Sub-function not supported (0x12)
-- Security access denied (0x33)
+## Best Practices
 
-### Error Recovery
-- Session recovery
-- Communication recovery
-- Memory operation recovery
+### 1. System Health Monitoring
+- Regularly check DiagSystem_IsHealthy()
+- Monitor resource usage trends
+- Set up alerts for threshold violations
 
-## Performance Considerations
+### 2. Error Handling
+- Always check return values from diagnostic functions
+- Implement appropriate error recovery mechanisms
+- Log all significant error events
 
-### Memory Usage
-- Configurable buffer sizes
-- Dynamic memory allocation avoided
-- Resource usage optimization
+### 3. Resource Management
+- Monitor resource usage trends
+- Implement resource cleanup mechanisms
+- Set appropriate warning thresholds
 
-### Timing
-- P2 server timing
-- S3 server timing
-- Operation timeouts
+### 4. Security Considerations
+- Regularly rotate security keys
+- Monitor and log security violations
+- Implement appropriate access controls
 
-## Testing
+### 5. Performance Optimization
+- Regular performance metric analysis
+- Optimize based on timing measurements
+- Monitor system bottlenecks
 
-### Unit Tests
-- Component level testing
-- Error case validation
-- Timing verification
+## Example Configurations
 
-### Integration Tests
-- System level testing
-- Protocol compliance
-- Performance validation
+### Development Environment
+```c
+DiagSystemConfig dev_config = {
+    .logger = {
+        .enable_console = true,
+        .enable_file = true,
+        .min_level = LOG_LEVEL_DEBUG,
+        .max_file_size = 1024 * 1024, // 1MB
+        .max_files = 5
+    },
+    .session = {
+        .max_sessions = 20,
+        .session_timeout_ms = 30000 // 30 seconds
+    },
+    .security = {
+        .max_attempts = 5,
+        .delay_time_ms = 1000
+    },
+    .resource = {
+        .enable_monitoring = true,
+        .check_interval_ms = 100
+    }
+};
+```
 
-## Limitations
+### Production Environment
+```c
+DiagSystemConfig prod_config = {
+    .logger = {
+        .enable_console = false,
+        .enable_file = true,
+        .min_level = LOG_LEVEL_WARNING,
+        .max_file_size = 5 * 1024 * 1024, // 5MB
+        .max_files = 10
+    },
+    .session = {
+        .max_sessions = 10,
+        .session_timeout_ms = 5000 // 5 seconds
+    },
+    .security = {
+        .max_attempts = 3,
+        .delay_time_ms = 5000
+    },
+    .resource = {
+        .enable_monitoring = true,
+        .check_interval_ms = 1000
+    }
+};
+```
 
-### Maximum Values
-- Maximum message size: 4096 bytes
-- Maximum routines: 32
-- Maximum DIDs: 200
-- Maximum security levels: 16
+## Troubleshooting
 
-### Dependencies
-- OS abstraction layer
-- Timer services
-- CAN driver interface
+### Common Issues and Solutions
 
-## Future Improvements
+#### 1. System Initialization Failures
+- Check configuration parameters
+- Verify system resources
+- Check log files for detailed error messages
 
-### Planned Features
-- DoIP support
-- Extended addressing
-- Functional addressing
-- Multi-frame optimization
+#### 2. Performance Issues
+- Monitor resource usage
+- Check timing measurements
+- Analyze performance metrics
 
-### Optimizations
-- Memory usage reduction
-- Processing speed improvements
-- Better error handling
+#### 3. Security Violations
+- Check security logs
+- Verify access levels
+- Review security configurations
+
+#### 4. Resource Exhaustion
+- Monitor memory usage
+- Check CPU utilization
+- Review I/O operations
+
+## Support and Maintenance
+
+### Regular Maintenance Tasks
+1. Review log files
+2. Analyze performance metrics
+3. Check resource usage patterns
+4. Update security configurations
+5. Verify system health status

@@ -1,36 +1,57 @@
 #ifndef CANT_DIAG_SYSTEM_H
 #define CANT_DIAG_SYSTEM_H
 
+#include "logging/diag_logger.h"
+#include "session/session_fsm.h"
+#include "security/security_manager.h"
+#include "resource/resource_manager.h"
+#include "timing/timing_monitor.h"
+#include "performance/perf_monitor.h"
+#include "data/diag_data_manager.h"
+#include "config/config_manager.h"
 #include <stdint.h>
 #include <stdbool.h>
-#include "diag_transport.h"
-#include "memory_manager.h"
-#include "session_manager.h"
-#include "service_router.h"
-#include "data_manager.h"
-#include "security_manager.h"
-#include "routine_manager.h"
-#include "comm_manager.h"
 
-// Diagnostic System Configuration
 typedef struct {
-    DiagTransportConfig transport_config;
-    MemoryManagerConfig memory_config;
-    SessionManagerConfig session_config;
-    ServiceRouterConfig router_config;
-    DataManagerConfig data_config;
-    SecurityManagerConfig security_config;
-    RoutineManagerConfig routine_config;
-    CommManagerConfig comm_config;
-    void (*system_error_callback)(uint32_t error_code);
+    LoggerConfig logger;
+    SessionFSMConfig session;
+    SecurityConfig security;
+    ResourceConfig resource;
+    TimingConfig timing;
+    PerfConfig performance;
+    DiagDataConfig data;
+    ConfigManagerConfig config;
 } DiagSystemConfig;
 
-// Diagnostic System API
-bool Diag_System_Init(const DiagSystemConfig* config);
-void Diag_System_DeInit(void);
-void Diag_System_Process(void);
-bool Diag_System_HandleRequest(const uint8_t* data, uint16_t length);
-bool Diag_System_IsReady(void);
-uint32_t Diag_System_GetLastError(void);
+bool DiagSystem_Init(const DiagSystemConfig* config);
+void DiagSystem_Deinit(void);
+void DiagSystem_Process(void);
+
+// System status and health
+typedef struct {
+    uint32_t active_sessions;
+    uint32_t security_violations;
+    uint32_t resource_warnings;
+    uint32_t timing_violations;
+    uint32_t error_count;
+    uint32_t uptime_seconds;
+} DiagSystemStatus;
+
+void DiagSystem_GetStatus(DiagSystemStatus* status);
+bool DiagSystem_IsHealthy(void);
+
+// Error handling
+typedef enum {
+    DIAG_ERROR_NONE = 0,
+    DIAG_ERROR_INITIALIZATION,
+    DIAG_ERROR_CONFIGURATION,
+    DIAG_ERROR_RESOURCE,
+    DIAG_ERROR_SECURITY,
+    DIAG_ERROR_TIMING,
+    DIAG_ERROR_COMMUNICATION
+} DiagErrorCode;
+
+const char* DiagSystem_GetLastError(void);
+DiagErrorCode DiagSystem_GetLastErrorCode(void);
 
 #endif // CANT_DIAG_SYSTEM_H 
