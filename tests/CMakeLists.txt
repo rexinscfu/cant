@@ -61,3 +61,16 @@ target_link_libraries(rt_scheduler_tests
 )
 
 add_test(NAME rt_scheduler_tests COMMAND rt_scheduler_tests)
+
+# Add LLVM generator tests
+add_executable(llvm_generator_tests
+    unit/llvm_generator_tests.c
+)
+
+target_link_libraries(llvm_generator_tests
+    cant_backend
+    cant_middle
+    cant_utils
+)
+
+add_test(NAME llvm_generator_tests COMMAND llvm_generator_tests)
