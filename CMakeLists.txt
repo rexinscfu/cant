@@ -16,3 +16,19 @@ include_directories(${LLVM_INCLUDE_DIRS})
 
 # Configure compiler flags
 if(CMAKE_C_COMPILER_ID
+
+# Add diagnostic system
+add_subdirectory(src/runtime/diagnostic)
+
+# Update main target dependencies
+target_link_libraries(cant_runtime
+    PRIVATE
+        os
+        utils
+        diagnostic
+)
+
+# Add examples if requested
+if(BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
