@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-project(DiagnosticSystem)
+project(CANT VERSION 1.0.0 LANGUAGES C CXX)
 
 # Enable testing
 enable_testing()
@@ -54,3 +54,47 @@ target_link_libraries(diagnostic_tests
 
 # Add tests
 add_test(NAME DiagnosticTests COMMAND diagnostic_tests)
+
+# Add network components to runtime library
+set(NETWORK_SOURCES
+    src/runtime/network/net_core.c
+    src/runtime/network/net_buffer.c
+    src/runtime/network/net_protocol.c
+    src/runtime/network/net_interface.c
+    src/runtime/platform/hardware/ethernet.c
+    src/runtime/platform/hardware/wifi.c
+    src/runtime/platform/hardware/cellular.c
+    src/runtime/platform/hardware/can.c
+)
+
+set(NETWORK_HEADERS
+    src/runtime/network/net_core.h
+    src/runtime/network/net_buffer.h
+    src/runtime/network/net_protocol.h
+    src/runtime/network/net_interface.h
+    src/runtime/platform/hardware/ethernet.h
+    src/runtime/platform/hardware/wifi.h
+    src/runtime/platform/hardware/cellular.h
+    src/runtime/platform/hardware/can.h
+)
+
+target_sources(cant_runtime
+    PRIVATE
+        ${NETWORK_SOURCES}
+    PUBLIC
+        ${NETWORK_HEADERS}
+)
+
+# Add network tests
+add_executable(network_tests
+    test/runtime/network/test_net_core.c
+    test/runtime/network/test_net_buffer.c
+    test/runtime/network/test_net_protocol.c
+    test/runtime/network/test_net_interface.c
+)
+
+target_link_libraries(network_tests
+    PRIVATE
+        cant_runtime
+        unity
+)
