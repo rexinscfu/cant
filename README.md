@@ -134,3 +134,33 @@ close_diagnostic_session();
 
 ## Status
 Current Version: 1.0.0-alpha
+
+# Diagnostic System
+
+## Overview
+The diagnostic system provides a comprehensive implementation of UDS (Unified Diagnostic Services) with support for:
+- Session management
+- Security access control
+- Message parsing and formatting
+- State machine management
+- Timer management
+- Error handling
+
+## Architecture
+```mermaid
+graph TD
+    A[Diagnostic Core] --> B[Session Manager]
+    A --> C[Security Manager]
+    A --> D[Parser]
+    A --> E[State Machine]
+    A --> F[Timer Manager]
+    A --> G[Error Handler]
+    B --> F
+    C --> F
+    E --> B
+    E --> C
+```
+
+## Components
+
+### Diagnostic Core (
