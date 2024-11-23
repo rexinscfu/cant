@@ -98,3 +98,30 @@ target_link_libraries(network_tests
         cant_runtime
         unity
 )
+
+# Add memory management components
+set(MEMORY_SOURCES
+    src/runtime/memory/memory_manager.c
+)
+
+set(MEMORY_HEADERS
+    src/runtime/memory/memory_manager.h
+)
+
+target_sources(cant_runtime
+    PRIVATE
+        ${MEMORY_SOURCES}
+    PUBLIC
+        ${MEMORY_HEADERS}
+)
+
+# Add memory tests
+add_executable(memory_tests
+    test/runtime/memory/test_memory_manager.c
+)
+
+target_link_libraries(memory_tests
+    PRIVATE
+        cant_runtime
+        unity
+)
