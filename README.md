@@ -163,4 +163,14 @@ graph TD
 
 ## Components
 
-### Diagnostic Core (
+# Diagnostic Communication Framework
+
+## Architecture Overview
+![dg1](https://www.plantuml.com/plantuml/png/NP71JiCm38RlUGfhzxq26cn2FL244D8E4GVJkY6YIP2JC4s8TsU9Kr5s-_qvjlzVsSM4dBARrISE7sW8DWUBneUOx03xmBI1RwKBUmuv4Ry2Hk0g1T_RUS5JbKht52CQwj2FSskvQ5gfz5sU9k8UFPhMVSjJRrZz_9deaCSJCi43dechX_tj8npOVhMP0RtIBzOHGtUi99L2wIEcuNqCfhBJHQptzkG2dq6EE_AfhcxqAOHPt98h-Z8eIM6xlMdfLcGTQf7IaK3Nj5gMBJBUhiZZVsX7VYoVyWi0)
+
+
+## Message Flow
+![dg2](https://www.plantuml.com/plantuml/png/PPAnJiGm38RtF8LrUuVUs04TGY0MbaCyWDKOY1JIA7P0lFrTwaPHcybHVzlV_rkzi62I_EDDl5StkuX1uFJyz07Z2P21vZpkjUkIXT8gflMvbr-Sh_AdyvtyYi7wJV_MTuy-L_JP53uC3njgWdSA5jw86R_8u2pk5uMg4IsbNT4JFCRe_q4zSUjNsMY1eUtVMk5AdBqOIuUHXgZk9rWFqdkgwTQg8oNH7R6aFqmjHVaAmsuZSLm2ayuU7Ee5Mu-b3bbDAd8i2oMdqAUgXxjGiEKdk040)
+
+## Memory Management
+![dg3](https://www.plantuml.com/plantuml/png/PO_D2i8m48Jl-nGzAgMl85N1dqEXw1EiwRO8swpijYVntKs8HLjFoMHclY5Gse0wZ3s3OpJBAkfh4SwUa9_zVLYj8TyoYukNWnB5yuXwmuxsmamkHbwVycviMz8AVN3r3v7S2VHLjOeZinzE5IHsT4BVS09ToJSncvukP0_nHilsVByeDjDtO46CrYmCPHWOUtu3)

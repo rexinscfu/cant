@@ -33,6 +33,11 @@ set(DIAG_SOURCES
     src/runtime/diagnostic/diag_error.c
     src/runtime/diagnostic/diag_logger.c
     src/runtime/diagnostic/diag_monitor.c
+    src/runtime/diagnostic/diag_router.c
+    src/runtime/diagnostic/diag_filter.c
+    src/runtime/network/message_handler.c
+    src/hardware/timer_hw.c
+    src/hardware/watchdog.c
 )
 
 # Create diagnostic library
@@ -61,6 +66,7 @@ if(DIAG_ENABLE_TESTS)
         tests/diagnostic/test_diag_logger.c
         tests/diagnostic/test_diag_monitor.c
         tests/diagnostic/test_diag_integration_advanced.c
+        tests/diagnostic/test_diag_router_advanced.c
     )
     
     foreach(test_source ${TEST_SOURCES})
@@ -86,4 +92,17 @@ install(DIRECTORY include/
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/config/diag_config.h.in
     ${CMAKE_CURRENT_BINARY_DIR}/include/diag_config.h
+)
+
+# Hardware specific stuff
+if(STM32_TARGET)
+    add_definitions(-DUSE_HAL_DRIVER)
+    add_definitions(-DSTM32F407xx)
+endif()
+
+# Update include directories
+include_directories(
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/hardware
+    ${CMAKE_BINARY_DIR}/include
 )

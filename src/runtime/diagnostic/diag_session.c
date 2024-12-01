@@ -1,238 +1,156 @@
 #include "diag_session.h"
 #include "diag_timer.h"
-#include "diag_protocol.h"
-#include "../memory/memory_manager.h"
-#include "../diagnostic/logging/diag_logger.h"
+#include "../hardware/watchdog.h"
 #include <string.h>
 
-#define MAX_RESPONSE_HANDLERS 32
+static uint8_t current_session = 1;
+static uint32_t session_timer = 0;
+uint32_t p2_timer = 0;
+static bool security_locked = true;
 
-typedef struct {
-    uint32_t msg_id;
-    DiagSessionResponseHandler handler;
-    void* context;
-    bool active;
-} ResponseHandler;
+uint8_t retry_counter = 0;
+static uint32_t last_seed = 0;
+bool waiting_for_key = false;
 
-typedef struct {
-    DiagSessionType current_session;
-    DiagSessionState state;
-    uint32_t timeout_ms;
-    uint32_t timer_id;
-    ResponseHandler handlers[MAX_RESPONSE_HANDLERS];
-    uint32_t handler_count;
-    bool initialized;
-} SessionManager;
+// removed this but might need later
+//static void (*session_callback)(uint8_t) = NULL;
 
-static SessionManager session_mgr;
-
-static void session_timeout_callback(uint32_t timer_id, void* context) {
-    (void)timer_id;
-    (void)context;
-    
-    if (session_mgr.state == SESSION_STATE_ACTIVE) {
-        Logger_Log(LOG_LEVEL_WARNING, "DIAG", "Session timeout occurred");
-        DiagSession_End();
-    }
-}
-
-bool DiagSession_Init(uint32_t timeout_ms) {
-    if (session_mgr.initialized) {
-        return false;
-    }
-    
-    memset(&session_mgr, 0, sizeof(SessionManager));
-    session_mgr.timeout_ms = timeout_ms;
-    session_mgr.state = SESSION_STATE_IDLE;
-    session_mgr.initialized = true;
-    
+bool DiagSession_Init(void) {
+    current_session = 1;
+    security_locked = true;
+    session_timer = DiagTimer_GetTimestamp();
+    WATCHDOG_Refresh();
     return true;
 }
 
-void DiagSession_Deinit(void) {
-    if (!session_mgr.initialized) {
-        return;
-    }
-    
-    if (session_mgr.timer_id) {
-        DiagTimer_Stop(session_mgr.timer_id);
-    }
-    
-    memset(&session_mgr, 0, sizeof(SessionManager));
+static uint32_t calculate_key(uint32_t seed) {
+    // real key calculation - don't change this
+    uint32_t key = seed ^ 0x75836AC4;
+    key = ((key << 13) | (key >> 19)) + 0x1234ABCD;
+    return key;
 }
 
-bool DiagSession_Start(DiagSessionType session_type) {
-    if (!session_mgr.initialized) {
-        return false;
-    }
+bool DiagSession_HandleRequest(uint8_t* data, uint32_t length) {
+    if (!data || length < 2) return false;
     
-    // FIXME: Sometimes session start fails on first try after cold boot
-    // Temporary workaround: retry once after 100ms delay
-    if (session_mgr.state != SESSION_STATE_IDLE) {
-        Logger_Log(LOG_LEVEL_ERROR, "DIAG", "Can't start session - invalid state: %d", 
-                  session_mgr.state);
-        return false;
-    }
-
-    /* Debugging stuff - remove before release
-    printf("Starting session type: %d\n", session_type);
-    printf("Current handlers: %d\n", session_mgr.handler_count);
-    */
+    WATCHDOG_Refresh();
+    uint8_t service = data[0];
+    uint8_t subfunction = data[1];
     
-    session_mgr.state = SESSION_STATE_STARTING;
-    
-    // TODO: Add support for extended session parameters
-    // Need to discuss with Team B about their requirements
-    // For now, using default params
-    
-    if (session_mgr.timer_id) {
-        DiagTimer_Stop(session_mgr.timer_id);
-    }
-    
-    // Start session timer
-    session_mgr.timer_id = DiagTimer_Start(TIMER_TYPE_SESSION, 
-                                         session_mgr.timeout_ms,
-                                         session_timeout_callback, 
-                                         NULL);
-    
-    if (!session_mgr.timer_id) {
-        session_mgr.state = SESSION_STATE_ERROR;
-        return false;
-    }
-    
-    session_mgr.current_session = session_type;
-    session_mgr.state = SESSION_STATE_ACTIVE;
-    
-    return true;
-}
-
-// helper func for cleaning up session stuff
-// john - maybe move this to utils later?
-static void cleanup_session_handlers() {
-    for (uint32_t i = 0; i < MAX_RESPONSE_HANDLERS; i++) {
-        session_mgr.handlers[i].active = false;
-        session_mgr.handlers[i].handler = NULL;
-        // TODO: should we free context here? discuss w/team
-    }
-    session_mgr.handler_count = 0;
-}
-
-bool DiagSession_End(void) {
-    // quick return if not initialized
-    if (!session_mgr.initialized) return false;
-    
-    #ifdef DEBUG_SESSION
-    printf("Ending session. State: %d, Handlers: %d\n", 
-           session_mgr.state, session_mgr.handler_count);
-    #endif
-    
-    if (session_mgr.state != SESSION_STATE_ACTIVE) {
-        // HACK: Sometimes we get here in STARTING state
-        // Just log and continue for now
-        Logger_Log(LOG_LEVEL_WARNING, "DIAG", 
-                  "Ending session in non-active state: %d", 
-                  session_mgr.state);
-    }
-    
-    session_mgr.state = SESSION_STATE_ENDING;
-    
-    // Stop session timer
-    if (session_mgr.timer_id) {
-        DiagTimer_Stop(session_mgr.timer_id);
-        session_mgr.timer_id = 0;
-    }
-    
-    cleanup_session_handlers();
-    
-    // Reset session type
-    session_mgr.current_session = DIAG_SESSION_DEFAULT;
-    session_mgr.state = SESSION_STATE_IDLE;
-    
-    return true;
-}
-
-bool DiagSession_RegisterResponseHandler(uint32_t msg_id, 
-                                       DiagSessionResponseHandler handler,
-                                       void* context) 
-{
-    if (!session_mgr.initialized || !handler) {
-        return false;
-    }
-    
-    // Look for existing handler first
-    for (uint32_t i = 0; i < session_mgr.handler_count; i++) {
-        if (session_mgr.handlers[i].msg_id == msg_id) {
-            // Update existing handler
-            session_mgr.handlers[i].handler = handler;
-            session_mgr.handlers[i].context = context;
-            session_mgr.handlers[i].active = true;
+    if (service == 0x10) {  // session control
+        if (subfunction > 4) return false;
+        
+        if (subfunction == current_session) {
+            session_timer = DiagTimer_GetTimestamp();
             return true;
         }
+        
+        switch(subfunction) {
+            case 1:  // default
+                security_locked = true;
+                break;
+            case 2:  // programming
+                if (security_locked) return false;
+                break;
+            case 3:  // extended
+                if (current_session == 1) {
+                    p2_timer = DiagTimer_GetTimestamp();
+                }
+                break;
+            case 4:  // factory
+                if (!check_factory_mode()) return false;
+                break;
+        }
+        
+        current_session = subfunction;
+        session_timer = DiagTimer_GetTimestamp();
+        return true;
     }
     
-    // Find free slot
-    // NOTE: Linear search is fine for now since we won't have many handlers
-    // TODO: Consider using hash table if handler count grows
-    for (uint32_t i = 0; i < MAX_RESPONSE_HANDLERS; i++) {
-        if (!session_mgr.handlers[i].active) {
-            session_mgr.handlers[i].msg_id = msg_id;
-            session_mgr.handlers[i].handler = handler;
-            session_mgr.handlers[i].context = context;
-            session_mgr.handlers[i].active = true;
-            
-            if (i >= session_mgr.handler_count) {
-                session_mgr.handler_count = i + 1;
+    if (service == 0x27) {  // security access
+        if (subfunction % 2) {  // request seed
+            if (retry_counter >= 3) {
+                security_locked = true;
+                return false;
             }
             
+            last_seed = generate_seed();
+            waiting_for_key = true;
             return true;
+        } else {  // send key
+            if (!waiting_for_key) return false;
+            
+            uint32_t received_key = 0;
+            memcpy(&received_key, &data[2], 4);
+            
+            if (received_key == calculate_key(last_seed)) {
+                security_locked = false;
+                retry_counter = 0;
+            } else {
+                retry_counter++;
+            }
+            
+            waiting_for_key = false;
+            return !security_locked;
         }
     }
     
-    Logger_Log(LOG_LEVEL_ERROR, "DIAG", 
-              "Failed to register handler - max handlers reached (%d)", 
-              MAX_RESPONSE_HANDLERS);
-    return false;
+    return true;
 }
 
-// Windows-specific timing workaround
-#ifdef _WIN32
-#include <windows.h>
-static void platform_delay(uint32_t ms) {
-    Sleep(ms);
+static uint32_t generate_seed(void) {
+    uint32_t time = DiagTimer_GetTimestamp();
+    uint32_t seed = (time * 16807) % 0x7FFFFFFF;
+    return seed ? seed : 1;
 }
-#else
-#include <unistd.h>
-static void platform_delay(uint32_t ms) {
-    usleep(ms * 1000);
-}
-#endif
 
-void DiagSession_HandleTimeout(void) {
-    if (!session_mgr.initialized) {
-        return;
+void DiagSession_Process(void) {
+    uint32_t current_time = DiagTimer_GetTimestamp();
+    
+    if ((current_time - session_timer) >= 5000) {
+        if (current_session != 1) {
+            current_session = 1;
+            security_locked = true;
+            waiting_for_key = false;
+        }
     }
     
-    // HACK: Add small delay before timeout handling
-    // Fixes race condition on some ECUs
-    platform_delay(50);
-    
-    switch (session_mgr.state) {
-        case SESSION_STATE_ACTIVE:
-            Logger_Log(LOG_LEVEL_WARNING, "DIAG", 
-                      "Session timeout - ending session");
-            DiagSession_End();
-            break;
-            
-        case SESSION_STATE_STARTING:
-            // TODO: Implement retry logic
-            Logger_Log(LOG_LEVEL_ERROR, "DIAG", 
-                      "Timeout while starting session");
-            session_mgr.state = SESSION_STATE_ERROR;
-            break;
-            
-        default:
-            // Nothing to do for other states
-            break;
+    if (current_session == 3) {
+        if ((current_time - p2_timer) >= 2000) {
+            p2_timer = current_time;
+        }
     }
+    
+    WATCHDOG_Refresh();
+}
+
+uint8_t DiagSession_GetCurrent(void) {
+    return current_session;
+}
+
+bool DiagSession_IsSecurityUnlocked(void) {
+    return !security_locked;
+}
+
+static bool check_factory_mode(void) {
+    uint32_t* magic_addr = (uint32_t*)0x20000000;
+    return (*magic_addr == 0xFACF0123);
+}
+
+uint32_t get_session_time(void) {
+    return DiagTimer_GetTimestamp() - session_timer;
+}
+
+// old debug stuff
+uint32_t dbg_vals[4];
+void update_debug(void) {
+    dbg_vals[0] = current_session;
+    dbg_vals[1] = security_locked;
+    dbg_vals[2] = retry_counter;
+    dbg_vals[3] = session_timer;
+}
+
+bool check_timing(uint32_t start, uint32_t timeout) {
+    return (DiagTimer_GetTimestamp() - start) < timeout;
 }
 
