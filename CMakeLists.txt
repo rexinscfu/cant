@@ -5,6 +5,9 @@ project(DiagnosticSystem C)
 option(DIAG_ENABLE_TESTS "Enable diagnostic system tests" ON)
 option(DIAG_ENABLE_LOGGING "Enable diagnostic system logging" ON)
 option(DIAG_DEVELOPMENT_BUILD "Enable development features" OFF)
+option(DIAG_ENABLE_RECORDING "Enable diagnostic recording" ON)
+option(DIAG_ENABLE_MONITORING "Enable diagnostic monitoring" ON)
+option(DIAG_MAX_RECORD_ENTRIES "Maximum number of record entries" "1000")
 
 # Compiler settings
 set(CMAKE_C_STANDARD 99)
@@ -28,6 +31,8 @@ set(DIAG_SOURCES
     src/runtime/diagnostic/diag_state.c
     src/runtime/diagnostic/diag_timer.c
     src/runtime/diagnostic/diag_error.c
+    src/runtime/diagnostic/diag_logger.c
+    src/runtime/diagnostic/diag_monitor.c
 )
 
 # Create diagnostic library
@@ -53,6 +58,9 @@ if(DIAG_ENABLE_TESTS)
         tests/diagnostic/test_diag_timer.c
         tests/diagnostic/test_diag_error.c
         tests/diagnostic/test_diag_integration.c
+        tests/diagnostic/test_diag_logger.c
+        tests/diagnostic/test_diag_monitor.c
+        tests/diagnostic/test_diag_integration_advanced.c
     )
     
     foreach(test_source ${TEST_SOURCES})
@@ -72,4 +80,10 @@ install(TARGETS diagnostic
 install(DIRECTORY include/
     DESTINATION include
     FILES_MATCHING PATTERN "*.h"
+)
+
+# Configure features
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/config/diag_config.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/include/diag_config.h
 )

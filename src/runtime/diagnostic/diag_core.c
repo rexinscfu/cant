@@ -72,6 +72,10 @@ bool Diag_Init(const DiagConfig* config) {
         return false;
     }
     
+    if (!DiagLogger_Init()) {
+        return false;
+    }
+    
     diag_mgr.initialized = true;
     diag_mgr.current_session = DIAG_SESSION_DEFAULT;
     diag_mgr.security_level = DIAG_SEC_LOCKED;
@@ -91,6 +95,7 @@ void Diag_Deinit(void) {
     }
     DiagSession_Deinit();
     DiagProtocol_Deinit();
+    DiagLogger_Deinit();
     
     memset(&diag_mgr, 0, sizeof(DiagManager));
     Logger_Log(LOG_LEVEL_INFO, "DIAG", "Diagnostic system deinitialized");

@@ -1,0 +1,23 @@
+#ifndef DIAG_CONFIG_H
+#define DIAG_CONFIG_H
+
+#cmakedefine DIAG_ENABLE_RECORDING
+#cmakedefine DIAG_ENABLE_MONITORING
+
+#define DIAG_MAX_RECORD_ENTRIES @DIAG_MAX_RECORD_ENTRIES@
+
+// Logger configuration
+#define DIAG_LOG_BUFFER_SIZE 32
+#define DIAG_MAX_LOG_CALLBACKS 8
+#define DIAG_MAX_MESSAGE_LENGTH 256
+
+// Monitor configuration
+#define DIAG_MONITOR_LINE_LENGTH 512
+#define DIAG_MONITOR_TIMESTAMP_FORMAT "%H:%M:%S.%ms"
+
+// Recorder configuration
+#define DIAG_RECORD_DATA_SIZE 64
+#define DIAG_RECORD_DESCRIPTION_SIZE 32
+#define DIAG_ENABLE_STATISTICS
+
+#endif // DIAG_CONFIG_H 
