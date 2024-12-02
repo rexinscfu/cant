@@ -1,154 +1,149 @@
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.15)
 project(DiagnosticSystem C)
 
-# Configuration options
-option(DIAG_ENABLE_TESTS "Enable diagnostic system tests" ON)
-option(DIAG_ENABLE_LOGGING "Enable diagnostic system logging" ON)
-option(DIAG_DEVELOPMENT_BUILD "Enable development features" OFF)
-option(DIAG_ENABLE_RECORDING "Enable diagnostic recording" ON)
-option(DIAG_ENABLE_MONITORING "Enable diagnostic monitoring" ON)
-option(DIAG_MAX_RECORD_ENTRIES "Maximum number of record entries" "1000")
-
 # Compiler settings
-set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-# Add compile definitions based on options
-if(DIAG_ENABLE_LOGGING)
-    add_definitions(-DDIAG_LOGGING_ENABLED)
+# Optimization flags
+if(CMAKE_C_COMPILER_ID MATCHES "GNU")
+    set(OPT_FLAGS "-O3 -flto -ffunction-sections -fdata-sections")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OPT_FLAGS} -Wall -Wextra")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gc-sections")
 endif()
 
-if(DIAG_DEVELOPMENT_BUILD)
-    add_definitions(-DDEVELOPMENT_BUILD)
+# STM32 specific settings
+if(STM32_TARGET)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard")
+    add_definitions(-DUSE_HAL_DRIVER -DSTM32F407xx)
 endif()
 
 # Source files
-set(DIAG_SOURCES
-    src/runtime/diagnostic/diag_core.c
-    src/runtime/diagnostic/diag_session.c
-    src/runtime/diagnostic/diag_security.c
-    src/runtime/diagnostic/diag_parser.c
-    src/runtime/diagnostic/diag_state.c
-    src/runtime/diagnostic/diag_timer.c
-    src/runtime/diagnostic/diag_error.c
-    src/runtime/diagnostic/diag_logger.c
-    src/runtime/diagnostic/diag_monitor.c
+set(CORE_SOURCES
+    src/runtime/core/sys_monitor.c
+    src/runtime/core/critical_section.c
+    src/runtime/core/cache_opt.c
+)
+
+set(MEMORY_SOURCES
+    src/runtime/memory/mem_pool.c
+)
+
+set(NETWORK_SOURCES
+    src/runtime/network/buffer_manager.c
+    src/runtime/network/message_handler.c
+    src/runtime/network/network_handler.c
+)
+
+set(DIAGNOSTIC_SOURCES
     src/runtime/diagnostic/diag_router.c
     src/runtime/diagnostic/diag_filter.c
-    src/runtime/network/message_handler.c
+    src/runtime/diagnostic/perf_monitor.c
+    src/runtime/diagnostic/route_table.c
+)
+
+set(HARDWARE_SOURCES
     src/hardware/timer_hw.c
+    src/hardware/timer_opt.c
+    src/hardware/dma_config.c
+    src/hardware/interrupt_handler.c
     src/hardware/watchdog.c
 )
 
-# Create diagnostic library
-add_library(diagnostic STATIC ${DIAG_SOURCES})
+# Test sources
+set(TEST_SOURCES
+    tests/final/system_integration_test.c
+    tests/final/hardware_test.c
+    tests/performance/test_network_perf.c
+    tests/performance/test_system_perf.c
+)
 
-target_include_directories(diagnostic PUBLIC
+# Main library
+add_library(diagnostic_core STATIC
+    ${CORE_SOURCES}
+    ${MEMORY_SOURCES}
+    ${NETWORK_SOURCES}
+    ${DIAGNOSTIC_SOURCES}
+    ${HARDWARE_SOURCES}
+)
+
+target_include_directories(diagnostic_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/hardware
 )
 
-# Tests
-if(DIAG_ENABLE_TESTS)
-    enable_testing()
-    add_subdirectory(external/unity)
-    
-    # Test executables
-    set(TEST_SOURCES
-        tests/diagnostic/test_diag_core.c
-        tests/diagnostic/test_diag_session.c
-        tests/diagnostic/test_diag_security.c
-        tests/diagnostic/test_diag_parser.c
-        tests/diagnostic/test_diag_state.c
-        tests/diagnostic/test_diag_timer.c
-        tests/diagnostic/test_diag_error.c
-        tests/diagnostic/test_diag_integration.c
-        tests/diagnostic/test_diag_logger.c
-        tests/diagnostic/test_diag_monitor.c
-        tests/diagnostic/test_diag_integration_advanced.c
-        tests/diagnostic/test_diag_router_advanced.c
+# Unity test framework
+add_library(unity STATIC
+    external/unity/unity.c
+)
+
+target_include_directories(unity PUBLIC
+    external/unity
+)
+
+# Test executables
+foreach(test_source ${TEST_SOURCES})
+    get_filename_component(test_name ${test_source} NAME_WE)
+    add_executable(${test_name} ${test_source})
+    target_link_libraries(${test_name} 
+        diagnostic_core
+        unity
     )
-    
-    foreach(test_source ${TEST_SOURCES})
-        get_filename_component(test_name ${test_source} NAME_WE)
-        add_executable(${test_name} ${test_source})
-        target_link_libraries(${test_name} diagnostic unity)
-        add_test(NAME ${test_name} COMMAND ${test_name})
-    endforeach()
-endif()
+    add_test(NAME ${test_name} COMMAND ${test_name})
+endforeach()
 
-# Installation
-install(TARGETS diagnostic
-    ARCHIVE DESTINATION lib
-    LIBRARY DESTINATION lib
+# Performance test settings
+set_tests_properties(test_network_perf test_system_perf
+    PROPERTIES
+        TIMEOUT 300
+        LABELS "performance"
 )
 
-install(DIRECTORY include/
+# Integration test settings
+set_tests_properties(system_integration_test hardware_test
+    PROPERTIES
+        TIMEOUT 600
+        LABELS "integration"
+)
+
+# Install targets
+install(TARGETS diagnostic_core
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+)
+
+install(DIRECTORY src/
     DESTINATION include
     FILES_MATCHING PATTERN "*.h"
 )
 
-# Configure features
-configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/config/diag_config.h.in
-    ${CMAKE_CURRENT_BINARY_DIR}/include/diag_config.h
-)
-
-# Hardware specific stuff
-if(STM32_TARGET)
-    add_definitions(-DUSE_HAL_DRIVER)
-    add_definitions(-DSTM32F407xx)
-endif()
-
-# Update include directories
-include_directories(
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/src/hardware
-    ${CMAKE_BINARY_DIR}/include
-)
-
-# Add performance test executable
-add_executable(test_network_perf
-    tests/performance/test_network_perf.c
-    ${COMMON_SOURCES}
-)
-
-target_link_libraries(test_network_perf
-    diagnostic
-    unity
-)
-
-# Add new source files to diagnostic library
-target_sources(diagnostic
-    PRIVATE
-        src/runtime/network/buffer_manager.c
-        src/runtime/network/message_handler.c
-        src/runtime/memory/mem_pool.c
-        src/runtime/diagnostic/route_table.c
-        src/runtime/diagnostic/perf_monitor.c
-        src/runtime/core/critical_section.c
-        src/runtime/core/sys_monitor.c
-        src/hardware/interrupt_handler.c
-        src/hardware/dma_config.c
-)
-
-# Hardware specific configurations
-if(STM32_TARGET)
-    target_compile_definitions(diagnostic
-        PRIVATE
-            USE_HAL_DRIVER
-            STM32F407xx
-            USE_DMA
-            USE_WATCHDOG
+# Documentation
+find_package(Doxygen)
+if(DOXYGEN_FOUND)
+    set(DOXYGEN_IN ${CMAKE_CURRENT_SOURCE_DIR}/docs/Doxyfile.in)
+    set(DOXYGEN_OUT ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile)
+    configure_file(${DOXYGEN_IN} ${DOXYGEN_OUT} @ONLY)
+    
+    add_custom_target(docs
+        COMMAND ${DOXYGEN_EXECUTABLE} ${DOXYGEN_OUT}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMENT "Generating documentation with Doxygen"
+        VERBATIM
     )
 endif()
 
-# Add test coverage
-add_test(NAME test_network_perf
-         COMMAND test_network_perf)
+# Build type specific settings
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG -g3 -Og")
+set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -DNDEBUG ${OPT_FLAGS}")
 
-set_tests_properties(test_network_perf
-    PROPERTIES
-        TIMEOUT 120
-        LABELS "performance"
+# Cache settings for better build performance
+set_directory_properties(PROPERTIES
+    CLEAN_NO_CUSTOM TRUE
 )
+
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_definitions(-DNDEBUG)
+    add_definitions(-DRELEASE_BUILD)
+endif()
+
