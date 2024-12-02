@@ -106,3 +106,49 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/src/hardware
     ${CMAKE_BINARY_DIR}/include
 )
+
+# Add performance test executable
+add_executable(test_network_perf
+    tests/performance/test_network_perf.c
+    ${COMMON_SOURCES}
+)
+
+target_link_libraries(test_network_perf
+    diagnostic
+    unity
+)
+
+# Add new source files to diagnostic library
+target_sources(diagnostic
+    PRIVATE
+        src/runtime/network/buffer_manager.c
+        src/runtime/network/message_handler.c
+        src/runtime/memory/mem_pool.c
+        src/runtime/diagnostic/route_table.c
+        src/runtime/diagnostic/perf_monitor.c
+        src/runtime/core/critical_section.c
+        src/runtime/core/sys_monitor.c
+        src/hardware/interrupt_handler.c
+        src/hardware/dma_config.c
+)
+
+# Hardware specific configurations
+if(STM32_TARGET)
+    target_compile_definitions(diagnostic
+        PRIVATE
+            USE_HAL_DRIVER
+            STM32F407xx
+            USE_DMA
+            USE_WATCHDOG
+    )
+endif()
+
+# Add test coverage
+add_test(NAME test_network_perf
+         COMMAND test_network_perf)
+
+set_tests_properties(test_network_perf
+    PROPERTIES
+        TIMEOUT 120
+        LABELS "performance"
+)

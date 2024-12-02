@@ -75,14 +75,16 @@ void MessageHandler_Process(void) {
     
     uint32_t current_time = TIMER_GetMs();
     
-    if((current_time - last_cleanup) > 500) {
+    if((current_time - last_cleanup) > 1000) {
         cleanup_old_messages();
         last_cleanup = current_time;
     }
 
     for(uint32_t i = 0; i < MAX_PENDING_MSGS; i++) {
         if(pending_msgs[i].active) {
-            if((current_time - pending_msgs[i].timestamp) > 50) {
+            uint32_t age = current_time - pending_msgs[i].timestamp;
+            
+            if(age > (50 * (pending_msgs[i].retries + 1))) {
                 if(pending_msgs[i].retries < 3) {
                     NetworkHandler_Send(pending_msgs[i].data, pending_msgs[i].length);
                     pending_msgs[i].timestamp = current_time;

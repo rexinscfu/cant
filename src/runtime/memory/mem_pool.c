@@ -13,19 +13,20 @@ void MemPool_Init(void) {
 }
 
 void* MemPool_Alloc(void) {
-    for(uint32_t i = 0; i < POOL_NUM_BLOCKS; i++) {
-        if(!blocks[i].used) {
-            blocks[i].used = true;
-            blocks[i].timestamp = TIMER_GetMs();
+    static uint32_t last_allocated = 0;
+    uint32_t start = last_allocated;
+    
+    // Try to find next free block starting from last allocation
+    do {
+        if(!blocks[last_allocated].used) {
+            blocks[last_allocated].used = true;
+            blocks[last_allocated].timestamp = TIMER_GetMs();
             free_blocks--;
-            
-            if(free_blocks < peak_usage) {
-                peak_usage = free_blocks;
-            }
-            
-            return blocks[i].data;
+            return blocks[last_allocated].data;
         }
-    }
+        last_allocated = (last_allocated + 1) % POOL_NUM_BLOCKS;
+    } while(last_allocated != start);
+    
     return NULL;
 }
 
@@ -45,14 +46,39 @@ uint32_t MemPool_GetFreeBlocks(void) {
 
 void MemPool_GarbageCollect(void) {
     uint32_t current_time = TIMER_GetMs();
+    uint32_t freed = 0;
     
     for(uint32_t i = 0; i < POOL_NUM_BLOCKS; i++) {
         if(blocks[i].used) {
             if(current_time - blocks[i].timestamp > 5000) {
                 blocks[i].used = false;
                 free_blocks++;
+                freed++;
             }
         }
+    }
+    
+    if(freed > 0) {
+        // Compact blocks if significant memory was freed
+        compact_blocks();
+    }
+}
+
+static void compact_blocks(void) {
+    uint32_t dest = 0;
+    uint32_t src = 0;
+    
+    while(src < POOL_NUM_BLOCKS) {
+        if(blocks[src].used) {
+            if(src != dest) {
+                memcpy(blocks[dest].data, blocks[src].data, POOL_BLOCK_SIZE);
+                blocks[dest].used = true;
+                blocks[dest].timestamp = blocks[src].timestamp;
+                blocks[src].used = false;
+            }
+            dest++;
+        }
+        src++;
     }
 }
 
