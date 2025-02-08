@@ -233,6 +233,101 @@ LLVMValueRef gen_can_receive_intrinsic(LLVMGenContext* ctx) {
     return LLVMAddFunction(ctx->module, "can_receive", func_type);
 }
 
+// SIMD pattern matching implementation
+LLVMValueRef gen_simd_frame_matcher(LLVMGenContext* ctx, Node* frame_node) {
+    if (!ctx || !frame_node) {
+        set_error("Invalid context or node", __func__, __LINE__);
+        return NULL;
+    }
+    
+    // Create vector types for SIMD operations
+    LLVMTypeRef v16i8 = LLVMVectorType(LLVMInt8TypeInContext(ctx->context), 16);
+    
+    // Generate frame data loading
+    LLVMValueRef frame_data = LLVMBuildExtractValue(ctx->builder, 
+        LLVMGetParam(ctx->builder, 0), 2, "frame_data");
+    
+    // Create SIMD pattern matcher function
+    LLVMTypeRef param_types[] = { v16i8, v16i8, v16i8 };
+    LLVMTypeRef func_type = LLVMFunctionType(
+        LLVMInt1TypeInContext(ctx->context),
+        param_types,
+        3,
+        false
+    );
+    
+    LLVMValueRef matcher = LLVMAddFunction(ctx->module, "simd_pattern_match", func_type);
+    
+    // Generate vectorized comparison code
+    LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(ctx->context, matcher, "entry");
+    LLVMPositionBuilderAtEnd(ctx->builder, entry);
+    
+    // Load data into vector registers
+    LLVMValueRef data_vec = LLVMBuildBitCast(ctx->builder, frame_data, v16i8, "data_vec");
+    LLVMValueRef pattern_vec = LLVMGetParam(matcher, 1);
+    LLVMValueRef mask_vec = LLVMGetParam(matcher, 2);
+    
+    // Perform masked comparison
+    LLVMValueRef masked_data = LLVMBuildAnd(ctx->builder, data_vec, mask_vec, "masked_data");
+    LLVMValueRef masked_pattern = LLVMBuildAnd(ctx->builder, pattern_vec, mask_vec, "masked_pattern");
+    LLVMValueRef cmp = LLVMBuildICmp(ctx->builder, LLVMIntEQ, masked_data, masked_pattern, "match");
+    
+    // Reduce vector comparison result
+    LLVMValueRef result = LLVMBuildExtractElement(ctx->builder, cmp, 
+        LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false), "result");
+    
+    LLVMBuildRet(ctx->builder, result);
+    
+    return matcher;
+}
+
+// Optimize frame data filtering
+LLVMValueRef gen_simd_data_filter(LLVMGenContext* ctx, Node* data_node) {
+    if (!ctx || !data_node) {
+        set_error("Invalid context or node", __func__, __LINE__);
+        return NULL;
+    }
+    
+    // Create vector types for data filtering
+    LLVMTypeRef v16i8 = LLVMVectorType(LLVMInt8TypeInContext(ctx->context), 16);
+    
+    // Generate filter function
+    LLVMTypeRef param_types[] = { v16i8, v16i8 };
+    LLVMTypeRef func_type = LLVMFunctionType(v16i8, param_types, 2, false);
+    
+    LLVMValueRef filter = LLVMAddFunction(ctx->module, "simd_data_filter", func_type);
+    
+    // Generate vectorized filtering code
+    LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(ctx->context, filter, "entry");
+    LLVMPositionBuilderAtEnd(ctx->builder, entry);
+    
+    // Load data and mask
+    LLVMValueRef data = LLVMGetParam(filter, 0);
+    LLVMValueRef mask = LLVMGetParam(filter, 1);
+    
+    // Apply filter mask
+    LLVMValueRef result = LLVMBuildAnd(ctx->builder, data, mask, "filtered_data");
+    
+    LLVMBuildRet(ctx->builder, result);
+    
+    return filter;
+}
+
+// Add intrinsic for optimized frame processing
+LLVMValueRef gen_frame_process_intrinsic(LLVMGenContext* ctx) {
+    // Create frame processing intrinsic
+    LLVMTypeRef frame_type = get_frame_type(ctx);
+    LLVMTypeRef param_types[] = { frame_type, LLVMInt32TypeInContext(ctx->context) };
+    LLVMTypeRef func_type = LLVMFunctionType(
+        LLVMVoidTypeInContext(ctx->context),
+        param_types,
+        2,
+        false
+    );
+    
+    return LLVMAddFunction(ctx->module, "process_frame", func_type);
+}
+
 // Module verification and optimization
 bool llvm_gen_verify_module(LLVMGenContext* ctx) {
     char* error = NULL;

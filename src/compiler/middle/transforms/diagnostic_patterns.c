@@ -83,16 +83,20 @@ bool transform_request_patterns(PatternContext* ctx, Node* service_node) {
     
     NodeList* patterns = service_node->as.diag_service.config.patterns;
     bool success = true;
+    bool use_simd = ctx->enable_simd && (ctx->target_features & TARGET_FEATURE_SIMD);
     
-    while (patterns) {
+    while (patterns && success) {
         PatternAnalysis analysis = analyze_pattern(patterns->node);
         Node* optimized = NULL;
         
-        if (can_vectorize_pattern(&analysis) && ctx->enable_simd) {
+        if (use_simd && can_vectorize_pattern(&analysis)) {
+            // Use SIMD-optimized matcher
             optimized = create_simd_matcher(ctx, patterns->node);
         } else if (should_use_lookup_table(&analysis)) {
+            // Use lookup table for complex patterns
             optimized = create_lookup_matcher(ctx, patterns->node);
         } else {
+            // Fallback to binary matcher
             optimized = create_binary_matcher(ctx, patterns->node);
         }
         
@@ -109,6 +113,38 @@ bool transform_request_patterns(PatternContext* ctx, Node* service_node) {
     return success;
 }
 
+bool optimize_pattern_matching(PatternContext* ctx, Node* pattern_node) {
+    if (!ctx || !pattern_node) return false;
+    
+    PatternAnalysis analysis = analyze_pattern(pattern_node);
+    bool modified = false;
+    
+    // Try SIMD optimization first
+    if (ctx->enable_simd && can_vectorize_pattern(&analysis)) {
+        Node* simd_matcher = create_simd_matcher(ctx, pattern_node);
+        if (simd_matcher) {
+            // Replace with SIMD version
+            memcpy(pattern_node, simd_matcher, sizeof(Node));
+            ir_destroy_node(simd_matcher);
+            modified = true;
+        }
+    }
+    
+    // Apply additional optimizations
+    if (!modified) {
+        if (should_use_lookup_table(&analysis)) {
+            Node* lookup_matcher = create_lookup_matcher(ctx, pattern_node);
+            if (lookup_matcher) {
+                memcpy(pattern_node, lookup_matcher, sizeof(Node));
+                ir_destroy_node(lookup_matcher);
+                modified = true;
+            }
+        }
+    }
+    
+    return modified;
+}
+
 // Pattern matcher creation
 Node* create_optimized_matcher(PatternContext* ctx, Node* pattern_node) {
     PatternAnalysis analysis = analyze_pattern(pattern_node);
@@ -123,14 +159,30 @@ Node* create_optimized_matcher(PatternContext* ctx, Node* pattern_node) {
 }
 
 Node* create_simd_matcher(PatternContext* ctx, Node* pattern_node) {
+    if (!ctx || !pattern_node) return NULL;
+    
     // Create SIMD-based pattern matcher
     Node* matcher = ir_create_node(ctx->builder, NODE_FRAME_PATTERN);
     
-    // Add SIMD intrinsic calls
-    Node* data_load = ir_create_simd_load(ctx->builder, pattern_node->as.frame_data.data);
-    Node* mask_load = ir_create_simd_load(ctx->builder, pattern_node->as.frame_data.mask);
-    Node* compare = ir_create_simd_compare(ctx->builder, data_load, mask_load);
+    // Extract pattern data and mask
+    const uint8_t* data = pattern_node->as.frame_data.data;
+    const uint8_t* mask = pattern_node->as.frame_data.mask;
+    uint8_t length = pattern_node->as.frame_data.length;
     
+    // Align data for SIMD operations (16-byte alignment)
+    uint8_t aligned_data[16] = {0};
+    uint8_t aligned_mask[16] = {0};
+    memcpy(aligned_data, data, length < 16 ? length : 16);
+    memcpy(aligned_mask, mask, length < 16 ? length : 16);
+    
+    // Create SIMD vector loads
+    Node* data_vec = ir_create_simd_load(ctx->builder, aligned_data);
+    Node* mask_vec = ir_create_simd_load(ctx->builder, aligned_mask);
+    
+    // Create vectorized comparison
+    Node* compare = ir_create_simd_compare(ctx->builder, data_vec, mask_vec);
+    
+    // Add pattern conditions
     matcher->as.frame_pattern.conditions = ir_create_node_list(compare);
     matcher->as.frame_pattern.handler = pattern_node->as.frame_pattern.handler;
     
@@ -196,4 +248,20 @@ static bool matches_pattern(uint32_t value, const uint8_t* pattern,
         }
     }
     return true;
+}
+
+// Helper function for SIMD capability check
+static bool has_simd_support(uint32_t target_features) {
+    return (target_features & TARGET_FEATURE_SIMD) != 0;
+}
+
+// Helper function for pattern analysis
+static bool is_pattern_simd_friendly(const PatternAnalysis* analysis) {
+    // Patterns suitable for SIMD should have:
+    // 1. Fixed length data (no variable length patterns)
+    // 2. High mask coverage (few wildcards)
+    // 3. Aligned access patterns
+    return analysis->has_fixed_length &&
+           analysis->mask_coverage >= (analysis->static_prefix_len * 8 * 3 / 4) &&
+           (analysis->static_prefix_len % 16) == 0;
 } 

@@ -5,14 +5,50 @@
 static const char* TARGET_NAME = "S32K3";
 static const char* TARGET_DESCRIPTION = "NXP S32K3 Automotive MCU";
 
-// Default capabilities
-static const S32K3Capabilities DEFAULT_CAPABILITIES = {
+// Target-specific SIMD support
+static const uint32_t S32K3_SIMD_WIDTH = 16;  // 128-bit SIMD
+static const uint32_t S32K3_SIMD_ALIGN = 16;  // 16-byte alignment
+
+// Enhanced target capabilities
+static const S32K3Capabilities S32K3_CAPABILITIES = {
     .max_can_filters = 128,
     .max_frame_size = 64,
     .max_baudrate = 8000000,  // 8 Mbps for CAN FD
     .min_baudrate = 125000,   // 125 kbps
     .has_fd_support = true,
-    .has_auto_retransmit = true
+    .has_auto_retransmit = true,
+    .simd_width = S32K3_SIMD_WIDTH,
+    .simd_align = S32K3_SIMD_ALIGN,
+    .supports_hardware_filtering = true,
+    .max_pattern_length = 64
+};
+
+// Target-specific intrinsics for SIMD operations
+static const S32K3IntrinsicInfo SIMD_INTRINSICS[] = {
+    {
+        .name = "s32k3_simd_load",
+        .num_args = 2,
+        .is_pure = true,
+        .has_side_effects = false
+    },
+    {
+        .name = "s32k3_simd_store",
+        .num_args = 2,
+        .is_pure = false,
+        .has_side_effects = true
+    },
+    {
+        .name = "s32k3_simd_compare",
+        .num_args = 3,
+        .is_pure = true,
+        .has_side_effects = false
+    },
+    {
+        .name = "s32k3_simd_mask",
+        .num_args = 2,
+        .is_pure = true,
+        .has_side_effects = false
+    }
 };
 
 // Intrinsic definitions
@@ -59,7 +95,7 @@ const char* s32k3_get_target_description(void) {
 }
 
 S32K3Capabilities s32k3_get_capabilities(void) {
-    return DEFAULT_CAPABILITIES;
+    return S32K3_CAPABILITIES;
 }
 
 bool s32k3_has_feature(S32K3Feature feature) {
@@ -114,8 +150,8 @@ bool s32k3_validate_config(const S32K3Config* config) {
     }
     
     // Validate CAN frequency
-    if (config->can_frequency < DEFAULT_CAPABILITIES.min_baudrate ||
-        config->can_frequency > DEFAULT_CAPABILITIES.max_baudrate) {
+    if (config->can_frequency < S32K3_CAPABILITIES.min_baudrate ||
+        config->can_frequency > S32K3_CAPABILITIES.max_baudrate) {
         return false;
     }
     
@@ -153,4 +189,36 @@ bool s32k3_can_inline_intrinsic(S32K3Intrinsic intrinsic) {
     
     // Only pure functions with no side effects can be inlined
     return info->is_pure && !info->has_side_effects;
+}
+
+// Get SIMD capabilities
+bool s32k3_get_simd_info(uint32_t* width, uint32_t* alignment) {
+    if (!width || !alignment) return false;
+    
+    if (s32k3_has_feature(S32K3_FEATURE_SIMD)) {
+        *width = S32K3_SIMD_WIDTH;
+        *alignment = S32K3_SIMD_ALIGN;
+        return true;
+    }
+    
+    return false;
+}
+
+// Check if pattern can use hardware acceleration
+bool s32k3_can_accelerate_pattern(const uint8_t* pattern, uint32_t length) {
+    if (!pattern || length > S32K3_CAPABILITIES.max_pattern_length) {
+        return false;
+    }
+    
+    // Check alignment requirements
+    if ((uintptr_t)pattern % S32K3_SIMD_ALIGN != 0) {
+        return false;
+    }
+    
+    // Check pattern length is multiple of SIMD width
+    if (length % S32K3_SIMD_WIDTH != 0) {
+        return false;
+    }
+    
+    return true;
 } 
