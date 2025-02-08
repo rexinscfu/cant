@@ -16,6 +16,7 @@ typedef enum {
 
 // Analysis results
 typedef struct {
+    void* data;
     bool* in;
     bool* out;
     uint32_t size;
