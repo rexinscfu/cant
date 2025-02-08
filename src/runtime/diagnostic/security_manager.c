@@ -1,4 +1,5 @@
 #include "security_manager.h"
+#include "security_state.h"
 #include <string.h>
 #include "../utils/timer.h"
 #include "../os/critical.h"
@@ -8,18 +9,13 @@
 #define DEFAULT_SEED_MASK 0xA5A5A5A5
 
 typedef struct {
-    uint8_t level;
-    uint8_t attempt_count;
-    bool seed_requested;
-    bool level_locked;
-    Timer delay_timer;
-    uint32_t last_seed;
-} SecurityLevelState;
+    SecurityLevel level_config;
+    SecurityStateContext state;
+} SecurityLevelEntry;
 
 typedef struct {
     SecurityManagerConfig config;
-    SecurityLevel levels[MAX_SECURITY_LEVELS];
-    SecurityLevelState level_states[MAX_SECURITY_LEVELS];
+    SecurityLevelEntry levels[MAX_SECURITY_LEVELS];
     uint32_t level_count;
     uint8_t current_level;
     bool initialized;
@@ -28,19 +24,10 @@ typedef struct {
 
 static SecurityManager security_manager;
 
-static SecurityLevel* find_security_level(uint8_t level) {
+static SecurityLevelEntry* find_security_level(uint8_t level) {
     for (uint32_t i = 0; i < security_manager.level_count; i++) {
-        if (security_manager.levels[i].level == level) {
+        if (security_manager.levels[i].level_config.level == level) {
             return &security_manager.levels[i];
-        }
-    }
-    return NULL;
-}
-
-static SecurityLevelState* find_level_state(uint8_t level) {
-    for (uint32_t i = 0; i < security_manager.level_count; i++) {
-        if (security_manager.levels[i].level == level) {
-            return &security_manager.level_states[i];
         }
     }
     return NULL;
@@ -58,30 +45,23 @@ static bool validate_default_key(uint32_t seed, uint32_t key) {
 }
 
 bool Security_Manager_Init(const SecurityManagerConfig* config) {
-    if (!config) {
-        return false;
-    }
+    if (!config) return false;
 
     enter_critical(&security_manager.critical);
 
     memcpy(&security_manager.config, config, sizeof(SecurityManagerConfig));
     
-    // Copy initial security levels if provided
     if (config->levels && config->level_count > 0) {
         uint32_t copy_count = (config->level_count <= MAX_SECURITY_LEVELS) ? 
                              config->level_count : MAX_SECURITY_LEVELS;
-        memcpy(security_manager.levels, config->levels, 
-               sizeof(SecurityLevel) * copy_count);
-        security_manager.level_count = copy_count;
-
-        // Initialize level states
+                             
         for (uint32_t i = 0; i < copy_count; i++) {
-            security_manager.level_states[i].level = config->levels[i].level;
-            security_manager.level_states[i].attempt_count = 0;
-            security_manager.level_states[i].seed_requested = false;
-            security_manager.level_states[i].level_locked = true;
-            timer_init();
+            memcpy(&security_manager.levels[i].level_config, &config->levels[i], 
+                   sizeof(SecurityLevel));
+            Security_State_Init(&security_manager.levels[i].state, 
+                              config->levels[i].level);
         }
+        security_manager.level_count = copy_count;
     } else {
         security_manager.level_count = 0;
     }
@@ -107,42 +87,27 @@ bool Security_Manager_RequestSeed(uint8_t level, uint8_t* seed, uint16_t* length
 
     enter_critical(&security_manager.critical);
 
-    SecurityLevel* sec_level = find_security_level(level);
-    SecurityLevelState* level_state = find_level_state(level);
-
-    if (!sec_level || !level_state) {
+    SecurityLevelEntry* entry = find_security_level(level);
+    if (!entry) {
         exit_critical(&security_manager.critical);
         return false;
     }
 
-    // Check if delay timer is still running
-    if (timer_expired(&level_state->delay_timer)) {
-        exit_critical(&security_manager.critical);
-        if (security_manager.config.violation_callback) {
-            security_manager.config.violation_callback(level, SECURITY_VIOLATION_DELAY_NOT_EXPIRED);
-        }
-        return false;
-    }
-
-    // Generate seed
-    uint32_t new_seed;
-    if (sec_level->seed_generator) {
-        if (!sec_level->seed_generator(level, seed, length)) {
-            exit_critical(&security_manager.critical);
-            return false;
-        }
-        memcpy(&new_seed, seed, sizeof(uint32_t));
-    } else {
-        new_seed = generate_default_seed();
-        memcpy(seed, &new_seed, SEED_LENGTH);
+    uint32_t seed_value;
+    bool result = Security_State_RequestSeed(&entry->state, &seed_value);
+    
+    if (result) {
+        memcpy(seed, &seed_value, SEED_LENGTH);
         *length = SEED_LENGTH;
+    } else if (Security_State_GetState(&entry->state) == SECURITY_STATE_DELAY_ACTIVE) {
+        if (security_manager.config.violation_callback) {
+            security_manager.config.violation_callback(level, 
+                SECURITY_VIOLATION_DELAY_NOT_EXPIRED);
+        }
     }
-
-    level_state->last_seed = new_seed;
-    level_state->seed_requested = true;
 
     exit_critical(&security_manager.critical);
-    return true;
+    return result;
 }
 
 bool Security_Manager_ValidateKey(uint8_t level, const uint8_t* key, uint16_t length) {
@@ -152,142 +117,77 @@ bool Security_Manager_ValidateKey(uint8_t level, const uint8_t* key, uint16_t le
 
     enter_critical(&security_manager.critical);
 
-    SecurityLevel* sec_level = find_security_level(level);
-    SecurityLevelState* level_state = find_level_state(level);
-
-    if (!sec_level || !level_state) {
+    SecurityLevelEntry* entry = find_security_level(level);
+    if (!entry) {
         exit_critical(&security_manager.critical);
         return false;
     }
 
-    // Check if seed was requested
-    if (!level_state->seed_requested) {
-        exit_critical(&security_manager.critical);
-        if (security_manager.config.violation_callback) {
-            security_manager.config.violation_callback(level, SECURITY_VIOLATION_SEQUENCE_ERROR);
-        }
-        return false;
-    }
+    uint32_t key_value;
+    memcpy(&key_value, key, sizeof(uint32_t));
 
-    // Check attempt limit
-    if (level_state->attempt_count >= sec_level->max_attempts) {
-        // Start delay timer
-        timer_start(&level_state->delay_timer, sec_level->delay_time_ms);
-        level_state->attempt_count = 0;
-        level_state->seed_requested = false;
-        
-        exit_critical(&security_manager.critical);
-        if (security_manager.config.violation_callback) {
-            security_manager.config.violation_callback(level, SECURITY_VIOLATION_ATTEMPT_LIMIT);
-        }
-        return false;
-    }
-
-    bool validation_result;
-    if (sec_level->key_validator) {
-        validation_result = sec_level->key_validator(level, key, length);
-    } else {
-        uint32_t received_key;
-        memcpy(&received_key, key, sizeof(uint32_t));
-        validation_result = validate_default_key(level_state->last_seed, received_key);
-    }
-
-    if (validation_result) {
-        level_state->level_locked = false;
-        level_state->attempt_count = 0;
+    bool result = Security_State_ValidateKey(&entry->state, key_value);
+    
+    if (result) {
         security_manager.current_level = level;
-        
         if (security_manager.config.security_callback) {
             security_manager.config.security_callback(level, true);
         }
     } else {
-        level_state->attempt_count++;
-        if (security_manager.config.violation_callback) {
-            security_manager.config.violation_callback(level, SECURITY_VIOLATION_INVALID_KEY);
+        SecurityState state = Security_State_GetState(&entry->state);
+        if (state == SECURITY_STATE_DELAY_ACTIVE) {
+            if (security_manager.config.violation_callback) {
+                security_manager.config.violation_callback(level, 
+                    SECURITY_VIOLATION_ATTEMPT_LIMIT);
+            }
+        } else {
+            if (security_manager.config.violation_callback) {
+                security_manager.config.violation_callback(level, 
+                    SECURITY_VIOLATION_INVALID_KEY);
+            }
         }
     }
 
-    level_state->seed_requested = false;
     exit_critical(&security_manager.critical);
-    return validation_result;
+    return result;
 }
 
 bool Security_Manager_IsLevelUnlocked(uint8_t level) {
-    if (!security_manager.initialized) {
-        return false;
-    }
+    if (!security_manager.initialized) return false;
 
     enter_critical(&security_manager.critical);
     
-    SecurityLevelState* level_state = find_level_state(level);
-    bool is_unlocked = level_state && !level_state->level_locked;
+    SecurityLevelEntry* entry = find_security_level(level);
+    bool is_unlocked = entry && 
+        (Security_State_GetState(&entry->state) == SECURITY_STATE_UNLOCKED);
     
     exit_critical(&security_manager.critical);
     return is_unlocked;
 }
 
 bool Security_Manager_LockLevel(uint8_t level) {
-    if (!security_manager.initialized) {
-        return false;
-    }
+    if (!security_manager.initialized) return false;
 
     enter_critical(&security_manager.critical);
     
-    SecurityLevelState* level_state = find_level_state(level);
-    if (!level_state) {
+    SecurityLevelEntry* entry = find_security_level(level);
+    if (!entry) {
         exit_critical(&security_manager.critical);
         return false;
     }
 
-    level_state->level_locked = true;
-    level_state->attempt_count = 0;
-    level_state->seed_requested = false;
-
-    if (security_manager.current_level == level) {
+    bool result = Security_State_Lock(&entry->state);
+    
+    if (result && security_manager.current_level == level) {
         security_manager.current_level = 0;
     }
 
-    if (security_manager.config.security_callback) {
-        security_manager.config.security_callback(level, false);
-    }
-
     exit_critical(&security_manager.critical);
-    return true;
-}
-
-bool Security_Manager_UnlockLevel(uint8_t level) {
-    if (!security_manager.initialized) {
-        return false;
-    }
-
-    enter_critical(&security_manager.critical);
-    
-    SecurityLevel* sec_level = find_security_level(level);
-    SecurityLevelState* level_state = find_level_state(level);
-    
-    if (!sec_level || !level_state) {
-        exit_critical(&security_manager.critical);
-        return false;
-    }
-
-    level_state->level_locked = false;
-    level_state->attempt_count = 0;
-    level_state->seed_requested = false;
-    security_manager.current_level = level;
-
-    if (security_manager.config.security_callback) {
-        security_manager.config.security_callback(level, true);
-    }
-
-    exit_critical(&security_manager.critical);
-    return true;
+    return result;
 }
 
 uint8_t Security_Manager_GetCurrentLevel(void) {
-    if (!security_manager.initialized) {
-        return 0;
-    }
-    return security_manager.current_level;
+    return security_manager.initialized ? security_manager.current_level : 0;
 }
 
 uint32_t Security_Manager_GetRemainingDelay(uint8_t level) {
@@ -297,11 +197,11 @@ uint32_t Security_Manager_GetRemainingDelay(uint8_t level) {
 
     enter_critical(&security_manager.critical);
     
-    SecurityLevelState* level_state = find_level_state(level);
+    SecurityLevelEntry* entry = find_security_level(level);
     uint32_t remaining = 0;
     
-    if (level_state) {
-        remaining = timer_remaining(&level_state->delay_timer);
+    if (entry) {
+        remaining = timer_remaining(&entry->state.delay_timer);
     }
     
     exit_critical(&security_manager.critical);
@@ -315,12 +215,11 @@ uint8_t Security_Manager_GetRemainingAttempts(uint8_t level) {
 
     enter_critical(&security_manager.critical);
     
-    SecurityLevel* sec_level = find_security_level(level);
-    SecurityLevelState* level_state = find_level_state(level);
+    SecurityLevelEntry* entry = find_security_level(level);
     
     uint8_t remaining = 0;
-    if (sec_level && level_state) {
-        remaining = sec_level->max_attempts - level_state->attempt_count;
+    if (entry) {
+        remaining = entry->level_config.max_attempts - entry->state.attempt_count;
     }
     
     exit_critical(&security_manager.critical);
@@ -334,10 +233,9 @@ void Security_Manager_ResetAttempts(uint8_t level) {
 
     enter_critical(&security_manager.critical);
     
-    SecurityLevelState* level_state = find_level_state(level);
-    if (level_state) {
-        level_state->attempt_count = 0;
-        level_state->seed_requested = false;
+    SecurityLevelEntry* entry = find_security_level(level);
+    if (entry) {
+        entry->state.attempt_count = 0;
     }
     
     exit_critical(&security_manager.critical);
@@ -363,15 +261,12 @@ bool Security_Manager_AddSecurityLevel(const SecurityLevel* level) {
     }
 
     // Add new level
-    memcpy(&security_manager.levels[security_manager.level_count], 
+    memcpy(&security_manager.levels[security_manager.level_count].level_config, 
            level, sizeof(SecurityLevel));
     
     // Initialize level state
-    security_manager.level_states[security_manager.level_count].level = level->level;
-    security_manager.level_states[security_manager.level_count].attempt_count = 0;
-    security_manager.level_states[security_manager.level_count].seed_requested = false;
-    security_manager.level_states[security_manager.level_count].level_locked = true;
-    timer_init();
+    Security_State_Init(&security_manager.levels[security_manager.level_count].state, 
+                      level->level);
 
     security_manager.level_count++;
 
@@ -389,7 +284,7 @@ bool Security_Manager_RemoveSecurityLevel(uint8_t level) {
     // Find level index
     int32_t index = -1;
     for (uint32_t i = 0; i < security_manager.level_count; i++) {
-        if (security_manager.levels[i].level == level) {
+        if (security_manager.levels[i].level_config.level == level) {
             index = i;
             break;
         }
@@ -404,10 +299,7 @@ bool Security_Manager_RemoveSecurityLevel(uint8_t level) {
     if (index < (security_manager.level_count - 1)) {
         memmove(&security_manager.levels[index],
                 &security_manager.levels[index + 1],
-                sizeof(SecurityLevel) * (security_manager.level_count - index - 1));
-        memmove(&security_manager.level_states[index],
-                &security_manager.level_states[index + 1],
-                sizeof(SecurityLevelState) * (security_manager.level_count - index - 1));
+                sizeof(SecurityLevelEntry) * (security_manager.level_count - index - 1));
     }
 
     security_manager.level_count--;
@@ -426,28 +318,20 @@ SecurityLevel* Security_Manager_GetSecurityLevel(uint8_t level) {
     }
 
     enter_critical(&security_manager.critical);
-    SecurityLevel* sec_level = find_security_level(level);
+    SecurityLevelEntry* entry = find_security_level(level);
     exit_critical(&security_manager.critical);
 
-    return sec_level;
+    return &entry->level_config;
 }
 
 void Security_Manager_ProcessTimeout(void) {
-    if (!security_manager.initialized) {
-        return;
-    }
+    if (!security_manager.initialized) return;
 
     enter_critical(&security_manager.critical);
-
+    
     for (uint32_t i = 0; i < security_manager.level_count; i++) {
-        SecurityLevelState* level_state = &security_manager.level_states[i];
-        
-        // Reset attempt count if delay timer expired
-        if (timer_expired(&level_state->delay_timer)) {
-            level_state->attempt_count = 0;
-            level_state->seed_requested = false;
-        }
+        Security_State_ProcessTimeout(&security_manager.levels[i].state);
     }
-
+    
     exit_critical(&security_manager.critical);
 }

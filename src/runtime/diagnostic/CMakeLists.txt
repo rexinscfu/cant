@@ -44,4 +44,42 @@ target_link_libraries(diagnostic
 
 if(BUILD_TESTING)
     add_subdirectory(tests)
-endif() 
+endif()
+
+target_sources(cant_runtime
+    PRIVATE
+        security_manager.c
+        security_state.c
+        service_router.c
+        session_manager.c
+        uds_handler.c
+        diag_state.c
+        diag_system.c
+        diag_timer.c
+        diag_transport.c
+        dtc_manager.c
+        event_handler.c
+        memory_manager.c
+        perf_monitor.c
+        route_table.c
+        routine_manager.c
+        comm_manager.c
+        data_manager.c
+        diag_core.c
+        diag_error.c
+        diag_filter.c
+        diag_logger.c
+        diag_monitor.c
+        diag_parser.c
+        diag_protocol.c
+        diag_recorder.c
+        diag_response.c
+        diag_router.c
+        diag_security.c
+        diag_session.c
+)
+
+target_include_directories(cant_runtime
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+) 
