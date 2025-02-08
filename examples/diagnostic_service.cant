@@ -1,0 +1,112 @@
+// Example diagnostic service configuration
+diagnostic service ReadDataByIdentifier {
+    id: 0x22
+    security: level_1
+    timeout: 100ms
+
+    // DID definitions
+    did VehicleSpeed {
+        id: 0xF40C
+        size: 2
+        format: "uint16"
+    }
+
+    did EngineRPM {
+        id: 0xF40D
+        size: 2
+        format: "uint16"
+    }
+
+    // Request pattern matching
+    request {
+        pattern {
+            id: 0x7E0
+            data: [0x22, 0xF4, 0x0C]
+            -> handle_speed_request()
+        }
+        
+        pattern {
+            id: 0x7E0
+            data: [0x22, 0xF4, 0x0D]
+            -> handle_rpm_request()
+        }
+    }
+
+    // Response handling
+    response {
+        pattern {
+            id: 0x7E8
+            data: [0x62, 0xF4, 0x0C, *]
+            -> process_speed_response()
+        }
+        
+        pattern {
+            id: 0x7E8
+            data: [0x62, 0xF4, 0x0D, *]
+            -> process_rpm_response()
+        }
+    }
+
+    // Flow control configuration
+    flow {
+        control: ContinueToSend
+        timeout: 50ms
+    }
+}
+
+// Diagnostic session management
+diagnostic session Default {
+    level: 1
+    timeout: 5000ms
+    
+    transition {
+        on: SecurityAccess
+        to: Programming
+        require: security_level_1
+    }
+}
+
+diagnostic session Programming {
+    level: 2
+    timeout: 2000ms
+    
+    transition {
+        on: SessionTimeout
+        to: Default
+    }
+}
+
+// Security access configuration
+diagnostic security {
+    level: 1
+    
+    access {
+        service: ReadDataByIdentifier
+        did: [VehicleSpeed, EngineRPM]
+        require: session_level_1
+    }
+    
+    access {
+        service: WriteDataByIdentifier
+        did: [VehicleSpeed]
+        require: session_level_2 && security_level_1
+    }
+}
+
+// CAN frame definitions for diagnostic communication
+can frame DiagRequest {
+    id: 0x7E0
+    dlc: 8
+    extended: false
+}
+
+can frame DiagResponse {
+    id: 0x7E8
+    dlc: 8
+    extended: false
+    
+    pattern {
+        data: [0x7F, *, 0x78]
+        -> handle_pending_response()
+    }
+} 

@@ -4,11 +4,15 @@
 #include <string.h>
 #include <ctype.h>
 
+#define MAX_IDENTIFIER_LENGTH 256
+#define MAX_STRING_LENGTH 1024
+
 struct Lexer {
     const char* source;
     const char* current;
     uint32_t line;
     uint32_t column;
+    char string_buffer[MAX_STRING_LENGTH];
     Error error;
 };
 
@@ -25,6 +29,24 @@ static struct {
     {"input", TOK_INPUT},
     {"output", TOK_OUTPUT},
     {"filter", TOK_FILTER},
+    {"diagnostic", TOK_DIAGNOSTIC},
+    {"service", TOK_SERVICE},
+    {"session", TOK_SESSION},
+    {"security", TOK_SECURITY},
+    {"request", TOK_REQUEST},
+    {"response", TOK_RESPONSE},
+    {"routine", TOK_ROUTINE},
+    {"did", TOK_DID},
+    {"pattern", TOK_PATTERN},
+    {"match", TOK_MATCH},
+    {"timeout", TOK_TIMEOUT},
+    {"flow", TOK_FLOW},
+    {"frame", TOK_FRAME},
+    {"id", TOK_ID},
+    {"dlc", TOK_DLC},
+    {"extended", TOK_EXTENDED},
+    {"periodic", TOK_PERIODIC},
+    {"trigger", TOK_TRIGGER},
     {NULL, TOK_EOF}
 };
 
@@ -32,11 +54,15 @@ static bool is_digit(char c) {
     return c >= '0' && c <= '9';
 }
 
+static bool is_hex_digit(char c) {
+    return is_digit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
 static bool is_alpha(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
 
-static bool is_alphanumeric(char c) {
+static bool is_alnum(char c) {
     return is_alpha(c) || is_digit(c);
 }
 
@@ -116,7 +142,7 @@ Token lexer_next_token(Lexer* lexer) {
 
     if (is_alpha(c)) {
         // Handle identifiers and keywords
-        while (is_alphanumeric(*lexer->current)) {
+        while (is_alnum(*lexer->current)) {
             lexer->current++;
             lexer->column++;
         }
@@ -152,4 +178,32 @@ Token lexer_next_token(Lexer* lexer) {
 
     token.length = 1;
     return token;
+}
+
+const char* lexer_token_kind_name(TokenKind kind) {
+    static const char* names[] = {
+        "EOF",
+        "ECU", "SIGNAL", "CAN", "FLEXRAY", "PROCESS", "INPUT", "OUTPUT", "FILTER",
+        "DIAGNOSTIC", "SERVICE", "SESSION", "SECURITY", "REQUEST", "RESPONSE",
+        "ROUTINE", "DID", "PATTERN", "MATCH", "TIMEOUT", "FLOW",
+        "FRAME", "ID", "DLC", "EXTENDED", "PERIODIC", "TRIGGER",
+        "INTEGER", "FLOAT", "IDENTIFIER", "HEX", "BINARY", "STRING",
+        "ASSIGN", "PLUS", "MINUS", "STAR", "SLASH", "PERCENT",
+        "AMPERSAND", "PIPE", "CARET", "TILDE", "SHIFT_LEFT", "SHIFT_RIGHT",
+        "EQUAL", "NOT_EQUAL", "LESS", "LESS_EQUAL", "GREATER", "GREATER_EQUAL",
+        "LBRACE", "RBRACE", "LPAREN", "RPAREN", "LBRACKET", "RBRACKET",
+        "COLON", "SEMICOLON", "DOT", "COMMA", "ARROW",
+        "ERROR", "COMMENT"
+    };
+    return names[kind];
+}
+
+bool lexer_is_keyword(const char* identifier, size_t length) {
+    for (int i = 0; keywords[i].keyword != NULL; i++) {
+        if (strlen(keywords[i].keyword) == length &&
+            memcmp(identifier, keywords[i].keyword, length) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
