@@ -1,3 +1,5 @@
+add_subdirectory(config)
+
 set(DIAG_SOURCES
     diag_system.c
     diag_transport.c
@@ -38,6 +40,7 @@ target_include_directories(diagnostic
 
 target_link_libraries(diagnostic
     PRIVATE
+        diagnostic_config
         os
         utils
 )
